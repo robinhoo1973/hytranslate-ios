@@ -7,6 +7,9 @@ options:
     iOS: "16.0"
     macOS: "13.0"
   createIntermediateGroups: true
+  # objectVersion 56 = Xcode 14/15/16 compatible. Default is 77 (Xcode 16-only)
+  # which breaks older runners. Keep this until we move to macos-15 everywhere.
+  xcodeVersion: "15.0"
 
 settings:
   base:

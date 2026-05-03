@@ -26,8 +26,8 @@ concurrency:
 
 env:
   BUNDLE_ID: com.example.hytranslate
-  SIM_DEVICE: "iPhone 15"
-  SIM_OS: "17.5"
+  SIM_DEVICE: "iPhone 16"
+  SIM_OS: "18.5"
   MODEL_REPO: tencent/HY-MT1.5-1.8B
   # Pin a HF revision so the cache key is stable. Update when upstream changes.
   MODEL_REVISION: main
@@ -36,15 +36,13 @@ env:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
 
-      # ---------------------------------------------------------------- toolchain
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+      # macos-15 default Xcode is 16.4 (DEVELOPER_DIR points at it).
 
       - name: Install xcodegen
         run: brew install xcodegen
@@ -61,7 +59,7 @@ jobs:
         with:
           path: build/llama.cpp
           # Bust cache when the conversion script changes (it pins llama.cpp behavior).
-          key: llamacpp-macos14-${{ hashFiles('tools/convert_hy_mt_to_gguf.sh') }}
+          key: llamacpp-macos15-${{ hashFiles('tools/convert_hy_mt_to_gguf.sh') }}
 
       - name: Cache GGUF model
         id: cache-model
@@ -122,7 +120,7 @@ jobs:
         run: |
           set -euxo pipefail
           UDID=$(xcrun simctl create "ci-iphone" \
-              "com.apple.CoreSimulator.SimDeviceType.iPhone-15" \
+              "com.apple.CoreSimulator.SimDeviceType.iPhone-16" \
               "com.apple.CoreSimulator.SimRuntime.iOS-${SIM_OS//./-}")
           echo "UDID=$UDID" >> "$GITHUB_ENV"
           xcrun simctl boot "$UDID"
