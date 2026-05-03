@@ -74,14 +74,32 @@ if [[ ! -d "$OUT_DIR/src" ]] || [[ ! -f "$OUT_DIR/src/model.safetensors" ]]; the
   done
 fi
 
-# --- 2. Build llama.cpp tools ------------------------------------------------
-if [[ ! -x "$LLAMA_CPP_DIR/build/bin/llama-quantize" ]]; then
-  echo ">>> Cloning & building llama.cpp ..."
+# --- 2. Locate llama.cpp tools ----------------------------------------------
+# Prefer brew-installed binaries (CI uses this path: ~10x faster than building
+# from source). Falls back to a local source build for hermetic local runs.
+LLAMA_QUANTIZE="${LLAMA_QUANTIZE:-$(command -v llama-quantize || true)}"
+LLAMA_CLI="${LLAMA_CLI:-$(command -v llama-cli || true)}"
+
+if [[ -z "$LLAMA_QUANTIZE" || ! -x "$LLAMA_QUANTIZE" ]]; then
+  echo ">>> No system llama-quantize; cloning & building from source ..."
   [[ -d "$LLAMA_CPP_DIR" ]] || git clone --depth 1 https://github.com/ggerganov/llama.cpp "$LLAMA_CPP_DIR"
-  cmake -S "$LLAMA_CPP_DIR" -B "$LLAMA_CPP_DIR/build" -DGGML_METAL=OFF -DLLAMA_CURL=OFF
-  cmake --build "$LLAMA_CPP_DIR/build" -j --target llama-quantize llama-cli
-  python -m pip install -q -r "$LLAMA_CPP_DIR/requirements.txt"
+  if [[ ! -x "$LLAMA_CPP_DIR/build/bin/llama-quantize" ]]; then
+    cmake -S "$LLAMA_CPP_DIR" -B "$LLAMA_CPP_DIR/build" -DGGML_METAL=OFF -DLLAMA_CURL=OFF
+    cmake --build "$LLAMA_CPP_DIR/build" -j --target llama-quantize llama-cli
+  fi
+  LLAMA_QUANTIZE="$LLAMA_CPP_DIR/build/bin/llama-quantize"
+  LLAMA_CLI="$LLAMA_CPP_DIR/build/bin/llama-cli"
 fi
+
+# convert_hf_to_gguf.py + requirements.txt only live in the source tree, so we
+# always need a (shallow) clone for the python conversion script.
+if [[ ! -f "$LLAMA_CPP_DIR/convert_hf_to_gguf.py" ]]; then
+  echo ">>> Shallow-cloning llama.cpp for conversion script ..."
+  rm -rf "$LLAMA_CPP_DIR"
+  git clone --depth 1 --filter=blob:none https://github.com/ggerganov/llama.cpp "$LLAMA_CPP_DIR"
+fi
+python -m pip install -q -r "$LLAMA_CPP_DIR/requirements/requirements-convert_hf_to_gguf.txt" \
+  || python -m pip install -q -r "$LLAMA_CPP_DIR/requirements.txt"
 
 # --- 3. HF -> GGUF (f16 intermediate) ---------------------------------------
 F16="$OUT_DIR/hy-mt-1.8b.f16.gguf"
@@ -91,19 +109,18 @@ if [[ ! -f "$F16" ]]; then
 fi
 
 # --- 4. Quantize to the requested target sizes ------------------------------
-QUANT="$LLAMA_CPP_DIR/build/bin/llama-quantize"
 for tag in $(echo "$QUANTS" | tr ',' ' '); do
   out="$OUT_DIR/hy-mt-1.8b.${tag}.gguf"
   if [[ ! -f "$out" ]]; then
     echo ">>> Quantizing -> $tag"
-    "$QUANT" "$F16" "$out" "$tag"
+    "$LLAMA_QUANTIZE" "$F16" "$out" "$tag"
   fi
 done
 
 # --- 5. Smoke test (CPU) ----------------------------------------------------
 if [[ "$SMOKE_TEST" == "1" ]] && [[ -f "$OUT_DIR/hy-mt-1.8b.Q4_K_M.gguf" ]]; then
   echo ">>> Smoke test on Q4_K_M:"
-  "$LLAMA_CPP_DIR/build/bin/llama-cli" \
+  "$LLAMA_CLI" \
     -m "$OUT_DIR/hy-mt-1.8b.Q4_K_M.gguf" \
     -no-cnv -n 64 -t 4 \
     -p $'Translate the following Chinese sentence into English:\n人工智能正在改变世界。\nEnglish:'

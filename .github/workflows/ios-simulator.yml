@@ -47,8 +47,10 @@ jobs:
 
       # macos-15 default Xcode is 16.4 (DEVELOPER_DIR points at it).
 
-      - name: Install xcodegen
-        run: brew install xcodegen aria2
+      - name: Install xcodegen + aria2 + llama.cpp
+        # llama.cpp formula gives us prebuilt llama-quantize / llama-cli
+        # (~10x faster than building from source on the runner each time).
+        run: brew install xcodegen aria2 llama.cpp
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -58,14 +60,6 @@ jobs:
       # ---------------------------------------------------------------- caches
       # Use restore + (later) save so the cache is written even if a downstream
       # step (e.g. simulator boot) fails. actions/cache@v4 only saves on success.
-      - name: Restore llama.cpp build cache
-        id: cache-llama
-        uses: actions/cache/restore@v4
-        with:
-          path: build/llama.cpp
-          # Bust cache when the conversion script changes (it pins llama.cpp behavior).
-          key: llamacpp-macos15-${{ hashFiles('tools/convert_hy_mt_to_gguf.sh') }}
-
       - name: Restore HF model source cache
         id: cache-hfsrc
         uses: actions/cache/restore@v4
@@ -144,13 +138,6 @@ jobs:
       # actions/cache@v4 would only save in a post-step that runs only on
       # overall job success (post-if: success()), and any later flake would
       # discard ~25 minutes of work.
-      - name: Save llama.cpp build cache
-        if: always() && steps.cache-llama.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: build/llama.cpp
-          key: ${{ steps.cache-llama.outputs.cache-primary-key }}
-
       - name: Save GGUF model cache
         if: always() && steps.cache-model.outputs.cache-hit != 'true' && hashFiles(format('build/models/hy-mt-1.8b.{0}.gguf', env.MODEL_QUANT)) != ''
         uses: actions/cache/save@v4
