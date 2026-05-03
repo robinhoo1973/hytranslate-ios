@@ -16,6 +16,17 @@ set -euo pipefail
 REPO_ID="${REPO_ID:-tencent/HY-MT1.5-1.8B}"
 OUT_DIR="${OUT_DIR:-$(pwd)/build/models}"
 LLAMA_CPP_DIR="${LLAMA_CPP_DIR:-$(pwd)/build/llama.cpp}"
+# Comma- or space-separated list of quants to produce. Default: full set.
+# CI overrides this to just Q3_K_M to save time and disk.
+QUANTS="${QUANTS:-Q4_K_M Q3_K_M IQ3_M}"
+# Set SMOKE_TEST=0 to skip the llama-cli smoke run (CI uses 0).
+SMOKE_TEST="${SMOKE_TEST:-1}"
+# Stream Python output unbuffered so tqdm progress bars appear in CI logs.
+export PYTHONUNBUFFERED=1
+# hf_transfer = parallel multi-connection downloader, ~5-10x faster + resilient
+# to single-connection stalls that hf_hub's default downloader can suffer from.
+export HF_HUB_ENABLE_HF_TRANSFER="${HF_HUB_ENABLE_HF_TRANSFER:-1}"
+export HF_HUB_DOWNLOAD_TIMEOUT="${HF_HUB_DOWNLOAD_TIMEOUT:-20}"
 
 mkdir -p "$OUT_DIR" "$(dirname "$LLAMA_CPP_DIR")"
 
@@ -23,8 +34,8 @@ mkdir -p "$OUT_DIR" "$(dirname "$LLAMA_CPP_DIR")"
 if [[ ! -d "$OUT_DIR/src" ]]; then
   echo ">>> Downloading $REPO_ID from HuggingFace ..."
   # huggingface_hub >=1.0 renamed the CLI from `huggingface-cli` to `hf`.
-  # Pin a version range that ships the new entrypoint, then call `hf download`.
-  python -m pip install -q -U "huggingface_hub>=1.0"
+  # hf_transfer enables the high-throughput Rust downloader.
+  python -m pip install -q -U "huggingface_hub>=1.0" hf_transfer
   hf download "$REPO_ID" --local-dir "$OUT_DIR/src"
 fi
 
@@ -44,9 +55,9 @@ if [[ ! -f "$F16" ]]; then
   python "$LLAMA_CPP_DIR/convert_hf_to_gguf.py" "$OUT_DIR/src" --outtype f16 --outfile "$F16"
 fi
 
-# --- 4. Quantize to the three target sizes ----------------------------------
+# --- 4. Quantize to the requested target sizes ------------------------------
 QUANT="$LLAMA_CPP_DIR/build/bin/llama-quantize"
-for tag in Q4_K_M Q3_K_M IQ3_M; do
+for tag in $(echo "$QUANTS" | tr ',' ' '); do
   out="$OUT_DIR/hy-mt-1.8b.${tag}.gguf"
   if [[ ! -f "$out" ]]; then
     echo ">>> Quantizing -> $tag"
@@ -55,11 +66,13 @@ for tag in Q4_K_M Q3_K_M IQ3_M; do
 done
 
 # --- 5. Smoke test (CPU) ----------------------------------------------------
-echo ">>> Smoke test on Q4_K_M:"
-"$LLAMA_CPP_DIR/build/bin/llama-cli" \
-  -m "$OUT_DIR/hy-mt-1.8b.Q4_K_M.gguf" \
-  -no-cnv -n 64 -t 4 \
-  -p $'Translate the following Chinese sentence into English:\n人工智能正在改变世界。\nEnglish:'
+if [[ "$SMOKE_TEST" == "1" ]] && [[ -f "$OUT_DIR/hy-mt-1.8b.Q4_K_M.gguf" ]]; then
+  echo ">>> Smoke test on Q4_K_M:"
+  "$LLAMA_CPP_DIR/build/bin/llama-cli" \
+    -m "$OUT_DIR/hy-mt-1.8b.Q4_K_M.gguf" \
+    -no-cnv -n 64 -t 4 \
+    -p $'Translate the following Chinese sentence into English:\n人工智能正在改变世界。\nEnglish:'
+fi
 
 echo
 echo "Done. Upload these three .gguf files to your CDN / HuggingFace mirror"

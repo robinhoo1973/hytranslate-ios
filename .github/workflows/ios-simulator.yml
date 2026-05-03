@@ -37,7 +37,7 @@ env:
 jobs:
   build:
     runs-on: macos-14
-    timeout-minutes: 90
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
@@ -76,18 +76,19 @@ jobs:
         env:
           # Optional: provide an HF token via repo secret to avoid rate limits.
           HUGGING_FACE_HUB_TOKEN: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
+          # Build only the quant CI cares about; smoke test is unnecessary here.
+          QUANTS: ${{ env.MODEL_QUANT }}
+          SMOKE_TEST: "0"
         run: |
           set -euxo pipefail
           # The script downloads BF16 weights, builds llama.cpp, converts to f16,
-          # then quantizes to Q4_K_M / Q3_K_M / IQ3_M. We only need Q3_K_M for CI.
+          # then quantizes to the QUANTS list (just Q3_K_M for CI).
           REPO_ID="$MODEL_REPO" \
           OUT_DIR="$PWD/build/models" \
           LLAMA_CPP_DIR="$PWD/build/llama.cpp" \
           bash tools/convert_hy_mt_to_gguf.sh
-          # Free disk: drop the f16 intermediate and unrelated quants from cache.
+          # Free disk: drop the f16 intermediate (~3.6 GB) before cache save.
           rm -f build/models/hy-mt-1.8b.f16.gguf
-          rm -f build/models/hy-mt-1.8b.Q4_K_M.gguf
-          rm -f build/models/hy-mt-1.8b.IQ3_M.gguf
           ls -lh build/models/
 
       # ---------------------------------------------------------------- xcode build
