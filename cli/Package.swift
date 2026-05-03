@@ -1,7 +1,10 @@
 // swift-tools-version: 5.10
-// Standalone macOS / Linux CLI that exercises the same llama.cpp bridge and
+// Standalone macOS CLI that exercises the same llama.cpp bridge and
 // prompt template used by the iOS app. Run on macOS 13+ to validate the
 // end-to-end pipeline before opening Xcode.
+//
+//   # one-time: fetch the prebuilt llama.cpp xcframework into ./Frameworks/
+//   ../tools/fetch_llama_xcframework.sh cli/Frameworks
 //
 //   cd cli
 //   swift run hytranslate \
@@ -21,17 +24,18 @@ let package = Package(
         .executable(name: "hytranslate", targets: ["HyTranslateCLI"]),
     ],
     dependencies: [
-        // llama.cpp ships a SwiftPM manifest with Metal + CPU backends.
-        .package(url: "https://github.com/ggerganov/llama.cpp", branch: "master"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
     ],
     targets: [
+        // Prebuilt llama.cpp framework. Fetch via tools/fetch_llama_xcframework.sh.
+        .binaryTarget(
+            name: "llama",
+            path: "Frameworks/llama.xcframework"
+        ),
         // Objective-C++ wrapper around llama.cpp (same file used by iOS).
         .target(
             name: "LlamaBridgeKit",
-            dependencies: [
-                .product(name: "llama", package: "llama.cpp"),
-            ],
+            dependencies: ["llama"],
             path: "Sources/LlamaBridgeKit",
             publicHeadersPath: "include",
             cxxSettings: [

@@ -21,6 +21,8 @@ build/
 *.bin
 *.safetensors
 ios/HyTranslate/Resources/Models/
+ios/Frameworks/
+*.xcframework/
 
 # --- Python (used by conversion script) ---
 __pycache__/

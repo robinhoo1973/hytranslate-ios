@@ -5,7 +5,7 @@
 #import <chrono>
 
 // llama.cpp public C API (provided via SwiftPM `llama` product).
-#import "llama.h"
+#import <llama/llama.h>
 
 @implementation LBSamplingParams
 - (instancetype)init {

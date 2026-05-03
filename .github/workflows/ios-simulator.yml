@@ -33,6 +33,9 @@ env:
   MODEL_REVISION: main
   # Q3_K_M is small enough (~0.9 GB) to fit comfortably in CI cache (10 GB limit).
   MODEL_QUANT: Q3_K_M
+  # Prebuilt llama.cpp xcframework (universal: ios + ios-sim + macos + catalyst).
+  # Pin to a tagged release for reproducibility.
+  LLAMA_XCFRAMEWORK_TAG: b9010
 
 jobs:
   build:
@@ -90,17 +93,32 @@ jobs:
           rm -f build/models/hy-mt-1.8b.f16.gguf
           ls -lh build/models/
 
+      # ---------------------------------------------------------------- llama.cpp xcframework
+      - name: Cache llama.cpp xcframework
+        id: cache-xcf
+        uses: actions/cache@v4
+        with:
+          path: ios/Frameworks/llama.xcframework
+          key: llama-xcframework-${{ env.LLAMA_XCFRAMEWORK_TAG }}
+
+      - name: Fetch llama.cpp xcframework
+        if: steps.cache-xcf.outputs.cache-hit != 'true'
+        run: |
+          set -euxo pipefail
+          mkdir -p ios/Frameworks
+          cd "$RUNNER_TEMP"
+          aria2c -x 8 -s 8 --console-log-level=warn --summary-interval=0 \
+            -o llama-xcframework.zip \
+            "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_XCFRAMEWORK_TAG}/llama-${LLAMA_XCFRAMEWORK_TAG}-xcframework.zip"
+          unzip -q llama-xcframework.zip
+          # Archive contains build-apple/llama.xcframework/.
+          mv build-apple/llama.xcframework "$GITHUB_WORKSPACE/ios/Frameworks/llama.xcframework"
+          ls "$GITHUB_WORKSPACE/ios/Frameworks/llama.xcframework"
+
       # ---------------------------------------------------------------- xcode build
       - name: Generate Xcode project
         working-directory: ios
         run: xcodegen generate
-
-      - name: Resolve SwiftPM dependencies
-        working-directory: ios
-        run: |
-          xcodebuild -resolvePackageDependencies \
-            -project HyTranslate.xcodeproj \
-            -scheme HyTranslate
 
       - name: Build for simulator
         working-directory: ios

@@ -24,12 +24,6 @@ settings:
     SUPPORTS_MACCATALYST: YES
     TARGETED_DEVICE_FAMILY: "1,2,6" # iPhone, iPad, Mac
 
-packages:
-  # llama.cpp ships an SPM manifest. Pin to a recent tag.
-  llama:
-    url: https://github.com/ggerganov/llama.cpp
-    branch: master
-
 targets:
   HyTranslate:
     type: application
@@ -49,9 +43,13 @@ targets:
         LSApplicationCategoryType: public.app-category.productivity
         NSPhotoLibraryUsageDescription: ""
     dependencies:
-      - package: llama
-        product: llama
+      # Prebuilt llama.cpp xcframework. CI fetches it into ios/Frameworks/
+      # via the "Fetch llama.cpp xcframework" workflow step.
+      - framework: Frameworks/llama.xcframework
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.hytranslate
         GENERATE_INFOPLIST_FILE: NO
+        FRAMEWORK_SEARCH_PATHS: $(inherited) $(SRCROOT)/Frameworks
+        OTHER_LDFLAGS: $(inherited) -framework llama
