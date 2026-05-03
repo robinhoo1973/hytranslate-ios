@@ -28,7 +28,7 @@ env:
   BUNDLE_ID: com.example.hytranslate
   SIM_DEVICE: "iPhone 15"
   SIM_OS: "17.5"
-  MODEL_REPO: tencent/Hy-MT1.5-1.8B
+  MODEL_REPO: tencent/HY-MT1.5-1.8B
   # Pin a HF revision so the cache key is stable. Update when upstream changes.
   MODEL_REVISION: main
   # Q3_K_M is small enough (~0.9 GB) to fit comfortably in CI cache (10 GB limit).

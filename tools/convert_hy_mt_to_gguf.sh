@@ -13,7 +13,7 @@
 #   hy-mt-1.8b.IQ3_M.gguf     ~0.8 GB   (alternative low-RAM build)
 set -euo pipefail
 
-REPO_ID="${REPO_ID:-tencent/Hy-MT1.5-1.8B}"
+REPO_ID="${REPO_ID:-tencent/HY-MT1.5-1.8B}"
 OUT_DIR="${OUT_DIR:-$(pwd)/build/models}"
 LLAMA_CPP_DIR="${LLAMA_CPP_DIR:-$(pwd)/build/llama.cpp}"
 
@@ -22,8 +22,10 @@ mkdir -p "$OUT_DIR" "$(dirname "$LLAMA_CPP_DIR")"
 # --- 1. Fetch source weights -------------------------------------------------
 if [[ ! -d "$OUT_DIR/src" ]]; then
   echo ">>> Downloading $REPO_ID from HuggingFace ..."
-  python -m pip install -q -U "huggingface_hub[cli]"
-  huggingface-cli download "$REPO_ID" --local-dir "$OUT_DIR/src" --local-dir-use-symlinks False
+  # huggingface_hub >=1.0 renamed the CLI from `huggingface-cli` to `hf`.
+  # Pin a version range that ships the new entrypoint, then call `hf download`.
+  python -m pip install -q -U "huggingface_hub>=1.0"
+  hf download "$REPO_ID" --local-dir "$OUT_DIR/src"
 fi
 
 # --- 2. Build llama.cpp tools ------------------------------------------------
