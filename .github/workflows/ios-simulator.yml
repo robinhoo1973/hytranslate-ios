@@ -56,35 +56,82 @@ jobs:
           python-version: "3.11"
 
       # ---------------------------------------------------------------- caches
-      - name: Cache llama.cpp build
+      # Use restore + (later) save so the cache is written even if a downstream
+      # step (e.g. simulator boot) fails. actions/cache@v4 only saves on success.
+      - name: Restore llama.cpp build cache
         id: cache-llama
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: build/llama.cpp
           # Bust cache when the conversion script changes (it pins llama.cpp behavior).
           key: llamacpp-macos15-${{ hashFiles('tools/convert_hy_mt_to_gguf.sh') }}
 
-      - name: Cache GGUF model
+      - name: Restore HF model source cache
+        id: cache-hfsrc
+        uses: actions/cache/restore@v4
+        with:
+          path: build/models/src
+          key: hfsrc-${{ env.MODEL_REPO }}-${{ env.MODEL_REVISION }}-v1
+
+      - name: Restore GGUF model cache
         id: cache-model
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: build/models/hy-mt-1.8b.${{ env.MODEL_QUANT }}.gguf
           key: gguf-${{ env.MODEL_REPO }}-${{ env.MODEL_REVISION }}-${{ env.MODEL_QUANT }}-v1
 
       # ---------------------------------------------------------------- model
-      - name: Convert + quantize model (cache miss only)
-        if: steps.cache-model.outputs.cache-hit != 'true'
-        timeout-minutes: 40
+      # Split into download / build / convert+quantize so each step has its own
+      # timeout and progress output, and so the (slow) HF download is cached
+      # independently of the (faster) GGUF conversion.
+      - name: Download HF model files
+        if: steps.cache-model.outputs.cache-hit != 'true' && steps.cache-hfsrc.outputs.cache-hit != 'true'
+        timeout-minutes: 30
         env:
-          # Optional: provide an HF token via repo secret to avoid rate limits.
           HUGGING_FACE_HUB_TOKEN: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
-          # Build only the quant CI cares about; smoke test is unnecessary here.
-          QUANTS: ${{ env.MODEL_QUANT }}
-          SMOKE_TEST: "0"
         run: |
           set -euxo pipefail
-          # The script downloads BF16 weights, builds llama.cpp, converts to f16,
-          # then quantizes to the QUANTS list (just Q3_K_M for CI).
+          mkdir -p build/models/src
+          BASE="https://huggingface.co/${MODEL_REPO}/resolve/${MODEL_REVISION}"
+          AUTH=()
+          if [[ -n "${HUGGING_FACE_HUB_TOKEN:-}" ]]; then
+            AUTH+=(--header="Authorization: Bearer ${HUGGING_FACE_HUB_TOKEN}")
+          fi
+          for f in config.json generation_config.json tokenizer.json \
+                   tokenizer_config.json special_tokens_map.json \
+                   chat_template.jinja model.safetensors; do
+            if [[ -s "build/models/src/$f" ]]; then
+              echo "skip cached: $f"; continue
+            fi
+            aria2c \
+              --console-log-level=notice --summary-interval=15 \
+              -x 16 -s 16 -k 1M \
+              --connect-timeout=20 --timeout=30 \
+              --max-tries=10 --retry-wait=5 \
+              --auto-file-renaming=false --allow-overwrite=true \
+              ${AUTH[@]+"${AUTH[@]}"} \
+              -d build/models/src -o "$f" "${BASE}/${f}"
+          done
+          ls -lh build/models/src/
+
+      - name: Save HF model source cache
+        if: always() && steps.cache-hfsrc.outputs.cache-hit != 'true' && hashFiles('build/models/src/model.safetensors') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: build/models/src
+          key: ${{ steps.cache-hfsrc.outputs.cache-primary-key }}
+
+      - name: Convert + quantize model
+        if: steps.cache-model.outputs.cache-hit != 'true'
+        timeout-minutes: 30
+        env:
+          QUANTS: ${{ env.MODEL_QUANT }}
+          SMOKE_TEST: "0"
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set -euxo pipefail
+          # convert_hy_mt_to_gguf.sh skips the download step when the files
+          # already exist (we just downloaded them above or restored from cache).
           REPO_ID="$MODEL_REPO" \
           OUT_DIR="$PWD/build/models" \
           LLAMA_CPP_DIR="$PWD/build/llama.cpp" \
@@ -93,10 +140,28 @@ jobs:
           rm -f build/models/hy-mt-1.8b.f16.gguf
           ls -lh build/models/
 
+      # Save the expensive caches as soon as they're populated. Without this,
+      # actions/cache@v4 would only save in a post-step that runs only on
+      # overall job success (post-if: success()), and any later flake would
+      # discard ~25 minutes of work.
+      - name: Save llama.cpp build cache
+        if: always() && steps.cache-llama.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: build/llama.cpp
+          key: ${{ steps.cache-llama.outputs.cache-primary-key }}
+
+      - name: Save GGUF model cache
+        if: always() && steps.cache-model.outputs.cache-hit != 'true' && hashFiles(format('build/models/hy-mt-1.8b.{0}.gguf', env.MODEL_QUANT)) != ''
+        uses: actions/cache/save@v4
+        with:
+          path: build/models/hy-mt-1.8b.${{ env.MODEL_QUANT }}.gguf
+          key: ${{ steps.cache-model.outputs.cache-primary-key }}
+
       # ---------------------------------------------------------------- llama.cpp xcframework
-      - name: Cache llama.cpp xcframework
+      - name: Restore llama.cpp xcframework cache
         id: cache-xcf
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ios/Frameworks/llama.xcframework
           key: llama-xcframework-${{ env.LLAMA_XCFRAMEWORK_TAG }}
@@ -114,6 +179,13 @@ jobs:
           # Archive contains build-apple/llama.xcframework/.
           mv build-apple/llama.xcframework "$GITHUB_WORKSPACE/ios/Frameworks/llama.xcframework"
           ls "$GITHUB_WORKSPACE/ios/Frameworks/llama.xcframework"
+
+      - name: Save llama.cpp xcframework cache
+        if: always() && steps.cache-xcf.outputs.cache-hit != 'true' && hashFiles('ios/Frameworks/llama.xcframework/Info.plist') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: ios/Frameworks/llama.xcframework
+          key: ${{ steps.cache-xcf.outputs.cache-primary-key }}
 
       # ---------------------------------------------------------------- xcode build
       - name: Generate Xcode project
