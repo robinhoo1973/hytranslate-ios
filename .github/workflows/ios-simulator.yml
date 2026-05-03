@@ -1,0 +1,190 @@
+name: iOS Simulator Build
+
+# Free macOS runner: builds the iOS app, prebuilds a Q3_K_M GGUF, sideloads
+# it into the simulator's Documents directory, boots the simulator, takes a
+# screenshot, and uploads everything as artifacts. No Apple Developer account
+# required (simulator-only, unsigned).
+#
+# Run cost: ~25-40 min cold, ~5 min warm (model + llama.cpp are cached).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ios/**"
+      - "tools/**"
+      - ".github/workflows/ios-simulator.yml"
+  pull_request:
+    paths:
+      - "ios/**"
+      - "tools/**"
+  workflow_dispatch:
+
+concurrency:
+  group: ios-sim-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUNDLE_ID: com.example.hytranslate
+  SIM_DEVICE: "iPhone 15"
+  SIM_OS: "17.5"
+  MODEL_REPO: tencent/Hy-MT1.5-1.8B
+  # Pin a HF revision so the cache key is stable. Update when upstream changes.
+  MODEL_REVISION: main
+  # Q3_K_M is small enough (~0.9 GB) to fit comfortably in CI cache (10 GB limit).
+  MODEL_QUANT: Q3_K_M
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---------------------------------------------------------------- toolchain
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # ---------------------------------------------------------------- caches
+      - name: Cache llama.cpp build
+        id: cache-llama
+        uses: actions/cache@v4
+        with:
+          path: build/llama.cpp
+          # Bust cache when the conversion script changes (it pins llama.cpp behavior).
+          key: llamacpp-macos14-${{ hashFiles('tools/convert_hy_mt_to_gguf.sh') }}
+
+      - name: Cache GGUF model
+        id: cache-model
+        uses: actions/cache@v4
+        with:
+          path: build/models/hy-mt-1.8b.${{ env.MODEL_QUANT }}.gguf
+          key: gguf-${{ env.MODEL_REPO }}-${{ env.MODEL_REVISION }}-${{ env.MODEL_QUANT }}-v1
+
+      # ---------------------------------------------------------------- model
+      - name: Convert + quantize model (cache miss only)
+        if: steps.cache-model.outputs.cache-hit != 'true'
+        env:
+          # Optional: provide an HF token via repo secret to avoid rate limits.
+          HUGGING_FACE_HUB_TOKEN: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
+        run: |
+          set -euxo pipefail
+          # The script downloads BF16 weights, builds llama.cpp, converts to f16,
+          # then quantizes to Q4_K_M / Q3_K_M / IQ3_M. We only need Q3_K_M for CI.
+          REPO_ID="$MODEL_REPO" \
+          OUT_DIR="$PWD/build/models" \
+          LLAMA_CPP_DIR="$PWD/build/llama.cpp" \
+          bash tools/convert_hy_mt_to_gguf.sh
+          # Free disk: drop the f16 intermediate and unrelated quants from cache.
+          rm -f build/models/hy-mt-1.8b.f16.gguf
+          rm -f build/models/hy-mt-1.8b.Q4_K_M.gguf
+          rm -f build/models/hy-mt-1.8b.IQ3_M.gguf
+          ls -lh build/models/
+
+      # ---------------------------------------------------------------- xcode build
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Resolve SwiftPM dependencies
+        working-directory: ios
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project HyTranslate.xcodeproj \
+            -scheme HyTranslate
+
+      - name: Build for simulator
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project HyTranslate.xcodeproj \
+            -scheme HyTranslate \
+            -configuration Debug \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcpretty || true
+
+      # ---------------------------------------------------------------- simulator
+      - name: Boot simulator
+        id: boot
+        run: |
+          set -euxo pipefail
+          UDID=$(xcrun simctl create "ci-iphone" \
+              "com.apple.CoreSimulator.SimDeviceType.iPhone-15" \
+              "com.apple.CoreSimulator.SimRuntime.iOS-${SIM_OS//./-}")
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+
+      - name: Install app
+        run: |
+          APP_PATH=$(find ios/build/Build/Products/Debug-iphonesimulator \
+              -maxdepth 2 -name "HyTranslate.app" | head -1)
+          test -n "$APP_PATH"
+          xcrun simctl install "$UDID" "$APP_PATH"
+
+      - name: Sideload GGUF into app Documents
+        run: |
+          set -euxo pipefail
+          # First launch creates the data container.
+          xcrun simctl launch "$UDID" "$BUNDLE_ID"
+          sleep 3
+          xcrun simctl terminate "$UDID" "$BUNDLE_ID" || true
+          DATA_DIR=$(xcrun simctl get_app_container "$UDID" "$BUNDLE_ID" data)
+          mkdir -p "$DATA_DIR/Documents/models"
+          cp "build/models/hy-mt-1.8b.${MODEL_QUANT}.gguf" \
+             "$DATA_DIR/Documents/models/hy-mt-1.8b.${MODEL_QUANT}.gguf"
+          # Mark this build as "active" so ModelStore picks it up on next launch.
+          plutil -create xml1 "$DATA_DIR/Library/Preferences/${BUNDLE_ID}.plist" || true
+          defaults write "$DATA_DIR/Library/Preferences/${BUNDLE_ID}" \
+              activeBuildId -string "hy-mt-1.8b.${MODEL_QUANT}"
+          ls -lh "$DATA_DIR/Documents/models/"
+
+      - name: Launch app and capture screenshots
+        run: |
+          set -euxo pipefail
+          mkdir -p artifacts
+          xcrun simctl launch --console-pty "$UDID" "$BUNDLE_ID" &
+          APP_PID=$!
+          sleep 8
+          xcrun simctl io "$UDID" screenshot artifacts/01-launch.png
+          sleep 5
+          xcrun simctl io "$UDID" screenshot artifacts/02-after-load.png
+          kill $APP_PID 2>/dev/null || true
+          xcrun simctl terminate "$UDID" "$BUNDLE_ID" || true
+
+      - name: Collect simulator logs
+        if: always()
+        run: |
+          mkdir -p artifacts
+          xcrun simctl spawn "$UDID" log show --last 5m \
+              --predicate "subsystem == \"$BUNDLE_ID\" OR processImagePath ENDSWITH \"HyTranslate\"" \
+              > artifacts/simulator.log 2>&1 || true
+
+      # ---------------------------------------------------------------- artifacts
+      - name: Upload screenshots + logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulator-output
+          path: artifacts/
+          retention-days: 14
+
+      - name: Upload .app bundle
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HyTranslate-simulator-app
+          path: ios/build/Build/Products/Debug-iphonesimulator/HyTranslate.app
+          retention-days: 14

@@ -1,0 +1,43 @@
+# --- macOS / Xcode ---
+.DS_Store
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+*.xcuserstate
+DerivedData/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM/
+
+# --- Swift Package Manager ---
+.build/
+.swiftpm/
+Package.resolved
+
+# --- llama.cpp / model artifacts (large, regenerate via tools/) ---
+build/
+*.gguf
+*.bin
+*.safetensors
+ios/HyTranslate/Resources/Models/
+
+# --- Python (used by conversion script) ---
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# --- Editor ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- OS ---
+Thumbs.db
+
+# --- Logs / temp ---
+*.log
+artifacts/

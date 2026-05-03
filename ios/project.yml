@@ -1,0 +1,54 @@
+# Generate the Xcode project with: `xcodegen generate` (run inside ios/)
+# Install XcodeGen: `brew install xcodegen`
+name: HyTranslate
+options:
+  bundleIdPrefix: com.example.hytranslate
+  deploymentTarget:
+    iOS: "16.0"
+    macOS: "13.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    DEVELOPMENT_TEAM: "" # fill before signing
+    SWIFT_OBJC_BRIDGING_HEADER: HyTranslate/HyTranslate-Bridging-Header.h
+    CLANG_ENABLE_MODULES: YES
+    CLANG_CXX_LANGUAGE_STANDARD: "c++17"
+    GCC_C_LANGUAGE_STANDARD: "c11"
+    OTHER_LDFLAGS: "-framework Metal -framework MetalKit -framework Accelerate -framework Foundation"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    SUPPORTS_MACCATALYST: YES
+    TARGETED_DEVICE_FAMILY: "1,2,6" # iPhone, iPad, Mac
+
+packages:
+  # llama.cpp ships an SPM manifest. Pin to a recent tag.
+  llama:
+    url: https://github.com/ggerganov/llama.cpp
+    branch: master
+
+targets:
+  HyTranslate:
+    type: application
+    platform: iOS
+    sources:
+      - path: HyTranslate
+        excludes:
+          - "**/.DS_Store"
+    resources:
+      - HyTranslate/Resources
+    info:
+      path: HyTranslate/Info.plist
+      properties:
+        CFBundleDisplayName: HyTranslate
+        UILaunchScreen: {}
+        UIRequiredDeviceCapabilities: [arm64]
+        LSApplicationCategoryType: public.app-category.productivity
+        NSPhotoLibraryUsageDescription: ""
+    dependencies:
+      - package: llama
+        product: llama
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.hytranslate
+        GENERATE_INFOPLIST_FILE: NO

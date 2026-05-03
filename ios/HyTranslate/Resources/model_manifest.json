@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "comment": "Hosted GGUF builds of Tencent Hy-MT1.5-1.8B. Replace base_url with your own CDN before shipping.",
+  "base_url": "https://your-cdn.example.com/hy-mt/v1",
+  "default_for_ram_gb": {
+    "ge_4": "Q4_K_M",
+    "lt_4": "Q3_K_M"
+  },
+  "builds": [
+    {
+      "id": "Q4_K_M",
+      "file": "hy-mt-1.8b.Q4_K_M.gguf",
+      "size_bytes": 1180000000,
+      "sha256": "TODO_FILL_AFTER_BUILD",
+      "min_ram_mb": 3500,
+      "label": "高质量 (Q4_K_M, ~1.1 GB)"
+    },
+    {
+      "id": "Q3_K_M",
+      "file": "hy-mt-1.8b.Q3_K_M.gguf",
+      "size_bytes": 920000000,
+      "sha256": "TODO_FILL_AFTER_BUILD",
+      "min_ram_mb": 2500,
+      "label": "均衡 (Q3_K_M, ~0.9 GB)"
+    },
+    {
+      "id": "IQ3_M",
+      "file": "hy-mt-1.8b.IQ3_M.gguf",
+      "size_bytes": 820000000,
+      "sha256": "TODO_FILL_AFTER_BUILD",
+      "min_ram_mb": 2500,
+      "label": "极致体积 (IQ3_M, ~0.8 GB)"
+    }
+  ]
+}
