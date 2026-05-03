@@ -45,7 +45,7 @@ jobs:
       # macos-15 default Xcode is 16.4 (DEVELOPER_DIR points at it).
 
       - name: Install xcodegen
-        run: brew install xcodegen
+        run: brew install xcodegen aria2
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -71,6 +71,7 @@ jobs:
       # ---------------------------------------------------------------- model
       - name: Convert + quantize model (cache miss only)
         if: steps.cache-model.outputs.cache-hit != 'true'
+        timeout-minutes: 25
         env:
           # Optional: provide an HF token via repo secret to avoid rate limits.
           HUGGING_FACE_HUB_TOKEN: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}

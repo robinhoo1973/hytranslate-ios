@@ -31,12 +31,47 @@ export HF_HUB_DOWNLOAD_TIMEOUT="${HF_HUB_DOWNLOAD_TIMEOUT:-20}"
 mkdir -p "$OUT_DIR" "$(dirname "$LLAMA_CPP_DIR")"
 
 # --- 1. Fetch source weights -------------------------------------------------
-if [[ ! -d "$OUT_DIR/src" ]]; then
-  echo ">>> Downloading $REPO_ID from HuggingFace ..."
-  # huggingface_hub >=1.0 renamed the CLI from `huggingface-cli` to `hf`.
-  # hf_transfer enables the high-throughput Rust downloader.
-  python -m pip install -q -U "huggingface_hub>=1.0" hf_transfer
-  hf download "$REPO_ID" --local-dir "$OUT_DIR/src"
+# We bypass `hf download` because in CI it stalled silently for 60+ min on the
+# 3.6 GB .safetensors file even with hf_transfer enabled. aria2c gives us
+# multi-connection downloads with explicit per-connection timeouts.
+if [[ ! -d "$OUT_DIR/src" ]] || [[ ! -f "$OUT_DIR/src/model.safetensors" ]]; then
+  echo ">>> Downloading $REPO_ID files via aria2c ..."
+  mkdir -p "$OUT_DIR/src"
+  REVISION="${MODEL_REVISION:-main}"
+  BASE="https://huggingface.co/${REPO_ID}/resolve/${REVISION}"
+  AUTH_HEADER=()
+  if [[ -n "${HUGGING_FACE_HUB_TOKEN:-}" ]]; then
+    AUTH_HEADER=(--header="Authorization: Bearer ${HUGGING_FACE_HUB_TOKEN}")
+  fi
+  # Files come from the model repo's siblings list. Keep this in sync if
+  # upstream adds files. The big one is model.safetensors (~3.6 GB).
+  for f in \
+      config.json \
+      generation_config.json \
+      tokenizer.json \
+      tokenizer_config.json \
+      special_tokens_map.json \
+      chat_template.jinja \
+      model.safetensors ; do
+    if [[ -f "$OUT_DIR/src/$f" ]]; then
+      echo "    skip (cached): $f"
+      continue
+    fi
+    echo "    fetch: $f"
+    aria2c \
+      --console-log-level=warn \
+      --summary-interval=10 \
+      -x 16 -s 16 -k 1M \
+      --connect-timeout=20 \
+      --timeout=30 \
+      --max-tries=5 \
+      --retry-wait=5 \
+      --auto-file-renaming=false \
+      --allow-overwrite=true \
+      "${AUTH_HEADER[@]}" \
+      -d "$OUT_DIR/src" -o "$f" \
+      "${BASE}/${f}"
+  done
 fi
 
 # --- 2. Build llama.cpp tools ------------------------------------------------
