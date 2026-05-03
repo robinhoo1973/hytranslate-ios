@@ -41,7 +41,7 @@ if [[ ! -d "$OUT_DIR/src" ]] || [[ ! -f "$OUT_DIR/src/model.safetensors" ]]; the
   BASE="https://huggingface.co/${REPO_ID}/resolve/${REVISION}"
   AUTH_HEADER=()
   if [[ -n "${HUGGING_FACE_HUB_TOKEN:-}" ]]; then
-    AUTH_HEADER=(--header="Authorization: Bearer ${HUGGING_FACE_HUB_TOKEN}")
+    AUTH_HEADER+=(--header="Authorization: Bearer ${HUGGING_FACE_HUB_TOKEN}")
   fi
   # Files come from the model repo's siblings list. Keep this in sync if
   # upstream adds files. The big one is model.safetensors (~3.6 GB).
@@ -68,7 +68,7 @@ if [[ ! -d "$OUT_DIR/src" ]] || [[ ! -f "$OUT_DIR/src/model.safetensors" ]]; the
       --retry-wait=5 \
       --auto-file-renaming=false \
       --allow-overwrite=true \
-      "${AUTH_HEADER[@]}" \
+      ${AUTH_HEADER[@]+"${AUTH_HEADER[@]}"} \
       -d "$OUT_DIR/src" -o "$f" \
       "${BASE}/${f}"
   done
