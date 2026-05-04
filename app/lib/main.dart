@@ -1,33 +1,83 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import 'language.dart';
+import 'simulator/feedback.dart';
+import 'simulator/simulator_host.dart';
 import 'translator.dart';
 
 void main() {
-  runApp(const HyTranslateApp());
+  runApp(const HyTranslateBootstrap());
 }
+
+/// Routes to the device simulator on Linux/Windows/macOS desktop hosts so
+/// developers can preview the app inside iPhone/iPad/Pixel/etc. frames.
+/// On real devices and the web, runs the app directly.
+class HyTranslateBootstrap extends StatelessWidget {
+  const HyTranslateBootstrap({super.key});
+
+  bool get _isDesktop {
+    if (kIsWeb) return false;
+    return Platform.isLinux || Platform.isWindows || Platform.isMacOS;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isDesktop) {
+      return MaterialApp(
+        title: 'HyTranslate Simulator',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          brightness: Brightness.dark,
+          useMaterial3: true,
+          colorSchemeSeed: const Color(0xFF1E88E5),
+          fontFamilyFallback: _cjkFallback,
+        ),
+        home: const SimulatorHost(child: HyTranslateApp()),
+      );
+    }
+    return const HyTranslateApp();
+  }
+}
+
+/// System CJK fonts to fall back to so 中文 renders correctly on every
+/// host without bundling Noto (would add ~20 MB to the binary).
+const List<String> _cjkFallback = <String>[
+  'Noto Sans CJK SC',
+  'Noto Sans SC',
+  'Source Han Sans SC',
+  'PingFang SC',
+  'Microsoft YaHei',
+  'Hiragino Sans GB',
+  'WenQuanYi Micro Hei',
+];
 
 class HyTranslateApp extends StatelessWidget {
   const HyTranslateApp({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final base = ThemeData(
+      colorSchemeSeed: const Color(0xFF1E88E5),
+      useMaterial3: true,
+      brightness: Brightness.light,
+      fontFamilyFallback: _cjkFallback,
+    );
+    final dark = ThemeData(
+      colorSchemeSeed: const Color(0xFF1E88E5),
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      fontFamilyFallback: _cjkFallback,
+    );
     return MaterialApp(
       title: 'HyTranslate',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorSchemeSeed: const Color(0xFF1E88E5),
-        useMaterial3: true,
-        brightness: Brightness.light,
-      ),
-      darkTheme: ThemeData(
-        colorSchemeSeed: const Color(0xFF1E88E5),
-        useMaterial3: true,
-        brightness: Brightness.dark,
-      ),
+      theme: base,
+      darkTheme: dark,
       home: const TranslateScreen(),
     );
   }
@@ -65,9 +115,13 @@ class _TranslateScreenState extends State<TranslateScreen> {
     if (model == null) {
       setState(() => _status =
           'No GGUF found. Drop one at <documents>/models/$kDefaultModelFileName or use “Pick model…”.');
+      SimulatorEventBus.instance.emit('未找到模型文件 (GGUF)',
+          level: SimulatorEventLevel.warning);
     } else {
       final mb = (model.sizeBytes / (1024 * 1024)).toStringAsFixed(1);
       setState(() => _status = 'Model ready · ${model.path}  ($mb MB)');
+      SimulatorEventBus.instance.emit('模型就绪 · $mb MB',
+          level: SimulatorEventLevel.success);
     }
   }
 
@@ -98,17 +152,24 @@ class _TranslateScreenState extends State<TranslateScreen> {
       _busy = true;
       _output = '';
     });
+    SimulatorEventBus.instance.emit(
+        '翻译开始 · ${_source.displayName} → ${_target.displayName} (${text.length} 字)');
     _sub?.cancel();
     _sub = _service
         .translate(source: _source, target: _target, text: text)
         .listen((cumulative) {
       setState(() => _output = cumulative);
     }, onError: (e) {
+      SimulatorEventBus.instance.emit('翻译失败: $e',
+          level: SimulatorEventLevel.error);
       setState(() {
         _output = 'Error: $e';
         _busy = false;
       });
     }, onDone: () {
+      SimulatorEventBus.instance.emit(
+          '翻译完成 · ${_output.length} 字',
+          level: SimulatorEventLevel.success);
       setState(() => _busy = false);
     });
   }
