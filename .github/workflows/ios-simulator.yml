@@ -179,20 +179,7 @@ jobs:
         working-directory: ios
         run: xcodegen generate
 
-      - name: Build for simulator
-        working-directory: ios
-        run: |
-          set -o pipefail
-          xcodebuild build \
-            -project HyTranslate.xcodeproj \
-            -scheme HyTranslate \
-            -configuration Debug \
-            -destination "generic/platform=iOS Simulator" \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO \
-            | xcpretty || true
-
-      # ---------------------------------------------------------------- simulator
+      # ---------------------------------------------------------------- simulator boot (BEFORE build, so we can use a concrete destination)
       - name: Boot simulator
         id: boot
         run: |
@@ -203,6 +190,31 @@ jobs:
           echo "UDID=$UDID" >> "$GITHUB_ENV"
           xcrun simctl boot "$UDID"
           xcrun simctl bootstatus "$UDID" -b
+
+      - name: Build for simulator
+        working-directory: ios
+        run: |
+          set -euxo pipefail
+          set -o pipefail
+          # Use a concrete destination (id=$UDID) rather than
+          # 'generic/platform=iOS Simulator' — the latter sometimes only
+          # produces the SwiftUI preview stub on Xcode 16, leaving the
+          # final .app without a main executable or Info.plist.
+          xcodebuild \
+            -project HyTranslate.xcodeproj \
+            -scheme HyTranslate \
+            -configuration Debug \
+            -destination "id=$UDID" \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build \
+            | tee build/xcodebuild.log | xcpretty || {
+              echo "--- last 200 lines of xcodebuild.log ---"
+              tail -200 build/xcodebuild.log
+              exit 1
+            }
+
+      # ---------------------------------------------------------------- simulator install/run
 
       - name: Install app
         run: |
