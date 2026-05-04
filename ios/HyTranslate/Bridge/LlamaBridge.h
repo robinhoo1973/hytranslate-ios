@@ -30,12 +30,14 @@ typedef BOOL (^LBTokenCallback)(NSString *token);
                                      error:(NSError **)error;
 
 /// Generate text from a fully-formatted prompt. Streams tokens via callback.
-/// Returns the concatenated output string. Safe to call from a background queue.
-/// Calling -cancel on another thread sets an atomic stop flag.
-- (NSString *)generateWithPrompt:(NSString *)prompt
-                          params:(LBSamplingParams *)params
-                        onToken:(nullable LBTokenCallback)onToken
-                           error:(NSError **)error;
+/// Returns the concatenated output string, or `nil` on failure (which makes
+/// the method bridge to a Swift `throws` function).
+/// Safe to call from a background queue. Calling -cancel on another thread
+/// sets an atomic stop flag.
+- (nullable NSString *)generateWithPrompt:(NSString *)prompt
+                                   params:(LBSamplingParams *)params
+                                  onToken:(nullable LBTokenCallback)onToken
+                                    error:(NSError **)error;
 
 - (void)cancel;
 

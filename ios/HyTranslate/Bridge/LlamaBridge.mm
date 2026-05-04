@@ -81,10 +81,10 @@
 
 - (void)cancel { _stopFlag.store(true); }
 
-- (NSString *)generateWithPrompt:(NSString *)prompt
-                          params:(LBSamplingParams *)params
-                         onToken:(LBTokenCallback)onToken
-                           error:(NSError **)error {
+- (nullable NSString *)generateWithPrompt:(NSString *)prompt
+                                   params:(LBSamplingParams *)params
+                                  onToken:(LBTokenCallback)onToken
+                                    error:(NSError **)error {
     _stopFlag.store(false);
     _lastTps = 0; _lastTokens = 0;
 
@@ -118,7 +118,7 @@
         llama_sampler_free(smpl);
         if (error) *error = [NSError errorWithDomain:@"LlamaBridge" code:3
             userInfo:@{NSLocalizedDescriptionKey: @"llama_decode (prompt) failed"}];
-        return @"";
+        return nil;
     }
 
     // ---- Sampling loop ---------------------------------------------------
