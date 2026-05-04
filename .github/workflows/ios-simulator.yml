@@ -194,8 +194,8 @@ jobs:
       - name: Build for simulator
         working-directory: ios
         run: |
-          set -euxo pipefail
-          set -o pipefail
+          set -uxo pipefail
+          mkdir -p build
           # Use a concrete destination (id=$UDID) rather than
           # 'generic/platform=iOS Simulator' — the latter sometimes only
           # produces the SwiftUI preview stub on Xcode 16, leaving the
@@ -207,12 +207,13 @@ jobs:
             -destination "id=$UDID" \
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
-            build \
-            | tee build/xcodebuild.log | xcpretty || {
-              echo "--- last 200 lines of xcodebuild.log ---"
-              tail -200 build/xcodebuild.log
-              exit 1
-            }
+            build 2>&1 | tee build/xcodebuild.log | xcpretty
+          RC=${PIPESTATUS[0]}
+          if [ "$RC" -ne 0 ]; then
+            echo "--- last 200 lines of xcodebuild.log ---"
+            tail -200 build/xcodebuild.log || true
+            exit "$RC"
+          fi
 
       # ---------------------------------------------------------------- simulator install/run
 
