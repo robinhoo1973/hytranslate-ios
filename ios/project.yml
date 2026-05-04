@@ -37,9 +37,22 @@ targets:
     info:
       path: HyTranslate/Info.plist
       properties:
+        CFBundleIdentifier: com.example.hytranslate
         CFBundleDisplayName: HyTranslate
+        CFBundleName: HyTranslate
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        CFBundleExecutable: $(EXECUTABLE_NAME)
+        CFBundlePackageType: APPL
+        LSRequiresIPhoneOS: true
         UILaunchScreen: {}
         UIRequiredDeviceCapabilities: [arm64]
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         LSApplicationCategoryType: public.app-category.productivity
         NSPhotoLibraryUsageDescription: ""
     dependencies:
