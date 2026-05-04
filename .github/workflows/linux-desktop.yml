@@ -79,17 +79,17 @@ jobs:
         run: |
           set -uxo pipefail
           export DISPLAY=:99
+          mkdir -p screenshots
           Xvfb :99 -screen 0 1280x800x24 &
           XVFB_PID=$!
           sleep 2
 
           # Run the app from its bundle dir so it can find data/flutter_assets.
           ( cd "${{ steps.bin.outputs.dir }}" && ./hytranslate ) \
-            >../app.stdout.log 2>../app.stderr.log &
+            >app.stdout.log 2>app.stderr.log &
           APP_PID=$!
 
           # Wait for window to appear, then screenshot.
-          mkdir -p ../screenshots
           for i in $(seq 1 20); do
             sleep 1
             if xwininfo -root -tree 2>/dev/null | grep -qi hytranslate; then
@@ -97,8 +97,8 @@ jobs:
             fi
           done
           sleep 3
-          import -window root ../screenshots/01-launch.png || true
-          ls -la ../screenshots
+          import -window root screenshots/01-launch.png || true
+          ls -la screenshots
 
           # Clean shutdown.
           kill "$APP_PID" 2>/dev/null || true
