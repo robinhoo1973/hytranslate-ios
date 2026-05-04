@@ -209,10 +209,13 @@ jobs:
           APP_PATH=$(find ios/build/Build/Products/Debug-iphonesimulator \
               -maxdepth 2 -name "HyTranslate.app" | head -1)
           test -n "$APP_PATH"
-          echo "--- built Info.plist ---"
-          plutil -p "$APP_PATH/Info.plist" || true
-          echo "--- raw plist (head) ---"
-          /usr/bin/head -c 2000 "$APP_PATH/Info.plist"; echo
+          echo "--- .app contents ---"
+          ls -la "$APP_PATH"
+          echo "--- Info.plist sources in repo ---"
+          find ios -name "Info.plist" -not -path "*/build/*" -ls
+          echo "--- generated xcodeproj plist refs ---"
+          grep -RIn "Info.plist\|INFOPLIST" ios/HyTranslate.xcodeproj/project.pbxproj | head -40 || true
+          echo "--- attempt install ---"
           xcrun simctl install "$UDID" "$APP_PATH"
 
       - name: Sideload GGUF into app Documents
