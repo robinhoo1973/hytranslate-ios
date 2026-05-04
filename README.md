@@ -1,53 +1,69 @@
 # HyTranslate
 
-Offline iOS / macOS / iPad translation app powered by Tencent **Hy-MT1.5-1.8B**
-running on-device through `llama.cpp` (Metal + Accelerate). The model is
-re-quantized to GGUF k-quants from the BF16 source published by Tencent;
-AngelSlim's 2-bit Sherry weights are not used because no Apple-side dequant
-kernel exists yet.
+Cross-platform offline translation app powered by Tencent **Hy-MT1.5-1.8B**
+(via [`fllama`](https://github.com/Telosnex/fllama) → llama.cpp).
 
-> **Status:** scaffold complete, awaiting a macOS machine (or CI runner) for
-> the first real Xcode build. Linux-side validation of the GGUF model and
-> prompt template is fully supported via `tools/`.
+| Tier        | Layout                                                       |
+|-------------|--------------------------------------------------------------|
+| UI / app    | Flutter 3.41+ — Linux, Windows, Android (macOS/iOS untested) |
+| Inference   | `fllama` (FFI, native llama.cpp) — Metal/Vulkan/CPU backends |
+| Model       | Tencent `tencent/HY-MT1.5-1.8B` → Q3_K_M GGUF (~0.9 GB)      |
 
-## Layout
+> The previous native iOS/Swift implementation has been moved to
+> [`archive/ios`](archive/ios). It is no longer built by CI but kept for
+> reference. The CI workflow that drove it is at
+> [`archive/ios-simulator.yml.disabled`](archive/ios-simulator.yml.disabled).
 
-| Path | Purpose |
-|---|---|
-| `ios/`        | SwiftUI + SwiftData iOS / iPad / Mac Catalyst app. Generated with XcodeGen. |
-| `cli/`        | macOS SwiftPM CLI that reuses the iOS bridge for desktop validation. |
-| `tools/`      | Linux-friendly shell scripts: GGUF conversion + smoke tests. |
-| `.github/`    | GitHub Actions: free macOS runner builds the simulator app + screenshots. |
+## Repo layout
 
-## Quick start (Linux, no Apple hardware)
-
-```bash
-# Convert + quantize Hy-MT1.5-1.8B to GGUF (one-time, ~3.6 GB download)
-bash tools/convert_hy_mt_to_gguf.sh
-
-# Translate something using llama.cpp's native CLI
-bash tools/linux_smoke_test.sh
+```
+app/                Flutter project (linux, windows, android targets)
+tools/              Model conversion + smoke-test scripts
+archive/            Read-only: previous native iOS implementation
+.github/workflows/  CI — currently Linux desktop build + screenshot
 ```
 
-## Quick start (macOS)
+## Run locally (Linux)
 
 ```bash
-brew install xcodegen
-cd ios && xcodegen generate && open HyTranslate.xcodeproj
+sudo apt install clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+cd app
+flutter pub get
+flutter run -d linux
 ```
 
-See [ios/README.md](ios/README.md) for full build/signing instructions and
-[cli/README.md](cli/README.md) for the macOS CLI demo.
+The first build of `fllama` compiles llama.cpp via Dart's native-asset hooks;
+expect a few minutes. Subsequent builds are incremental.
 
-## Continuous integration
+## Provide a model
 
-`.github/workflows/ios-simulator.yml` runs on every push: it converts the
-model, builds the iOS app, boots an iOS 17 simulator, sideloads the GGUF, and
-uploads launch screenshots as artifacts. **No Apple Developer account is
-required** — the workflow uses `CODE_SIGNING_ALLOWED=NO` and never produces a
-signed `.ipa`.
+The app looks for a GGUF at:
+
+```
+<app-documents-directory>/models/hy-mt-1.8b.Q3_K_M.gguf
+```
+
+You can also use the folder icon in the title bar to pick any `.gguf` from
+disk.
+
+To produce that file from the upstream HF checkpoint (BF16 → f16 → Q3_K_M):
+
+```bash
+brew install llama.cpp                       # macOS / Linuxbrew
+# OR build llama-quantize from source — the tools/ script falls back to that
+tools/convert_hy_mt_to_gguf.sh build/models  # outputs hy-mt-1.8b.Q3_K_M.gguf
+```
+
+Drop the resulting GGUF into the documents directory listed in the app's
+status bar.
+
+## CI
+
+[`linux-desktop.yml`](.github/workflows/linux-desktop.yml) builds the Linux
+bundle on `ubuntu-latest`, launches it under Xvfb, captures a launch
+screenshot, and uploads everything as artifacts.
 
 ## License
 
-App code: see source files. Hy-MT1.5 model weights and the AngelSlim toolkit
-are subject to Tencent's licenses; review them before redistribution.
+Source code: MIT (see [LICENSE](LICENSE) when added).
+Model weights are subject to Tencent's Hy-MT1.5 license terms.

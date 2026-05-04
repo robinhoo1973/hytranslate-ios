@@ -1,0 +1,133 @@
+name: Linux Desktop Build
+
+# Builds the Flutter Linux desktop app, launches it under Xvfb, captures a
+# launch screenshot, and uploads everything as artifacts. No model required
+# at build time — the user (or a follow-up workflow) drops a Q3_K_M GGUF into
+# the app's documents directory at runtime.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "tools/**"
+      - ".github/workflows/linux-desktop.yml"
+  pull_request:
+    paths:
+      - "app/**"
+      - "tools/**"
+  workflow_dispatch:
+
+concurrency:
+  group: linux-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: "3.41.9"
+
+jobs:
+  build:
+    name: Build & screenshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux desktop deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev \
+            xvfb imagemagick x11-utils \
+            libcurl4-openssl-dev
+
+      - name: Set up Flutter ${{ env.FLUTTER_VERSION }}
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Enable Linux desktop
+        run: flutter config --enable-linux-desktop
+
+      - name: flutter doctor
+        run: flutter doctor -v
+
+      - name: pub get
+        working-directory: app
+        run: flutter pub get
+
+      - name: Build linux (debug)
+        working-directory: app
+        run: flutter build linux --debug -v 2>&1 | tail -200
+
+      - name: Locate built binary
+        id: bin
+        working-directory: app
+        run: |
+          BIN=$(find build/linux -type f -name hytranslate -perm -u+x | head -1)
+          echo "Built binary: $BIN"
+          test -n "$BIN"
+          echo "path=$BIN" >> "$GITHUB_OUTPUT"
+          echo "dir=$(dirname "$BIN")"  >> "$GITHUB_OUTPUT"
+
+      - name: Launch under Xvfb and capture screenshot
+        working-directory: app
+        run: |
+          set -uxo pipefail
+          export DISPLAY=:99
+          Xvfb :99 -screen 0 1280x800x24 &
+          XVFB_PID=$!
+          sleep 2
+
+          # Run the app from its bundle dir so it can find data/flutter_assets.
+          ( cd "${{ steps.bin.outputs.dir }}" && ./hytranslate ) \
+            >../app.stdout.log 2>../app.stderr.log &
+          APP_PID=$!
+
+          # Wait for window to appear, then screenshot.
+          mkdir -p ../screenshots
+          for i in $(seq 1 20); do
+            sleep 1
+            if xwininfo -root -tree 2>/dev/null | grep -qi hytranslate; then
+              break
+            fi
+          done
+          sleep 3
+          import -window root ../screenshots/01-launch.png || true
+          ls -la ../screenshots
+
+          # Clean shutdown.
+          kill "$APP_PID" 2>/dev/null || true
+          sleep 1
+          kill -9 "$APP_PID" 2>/dev/null || true
+          kill "$XVFB_PID" 2>/dev/null || true
+
+      - name: Tail logs
+        if: always()
+        working-directory: app
+        run: |
+          echo "--- stdout ---"; tail -80 app.stdout.log 2>/dev/null || true
+          echo "--- stderr ---"; tail -80 app.stderr.log 2>/dev/null || true
+
+      - name: Upload screenshots + logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-screenshots
+          path: |
+            app/screenshots/**
+            app/app.stdout.log
+            app/app.stderr.log
+          if-no-files-found: warn
+
+      - name: Upload Linux bundle
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hytranslate-linux-bundle
+          path: app/build/linux/*/debug/bundle
+          if-no-files-found: error
