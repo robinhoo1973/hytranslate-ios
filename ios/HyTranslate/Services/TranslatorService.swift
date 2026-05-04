@@ -17,15 +17,11 @@ actor TranslatorService {
 
         // Apple devices: always try Metal; fall back transparently if unavailable.
         let nThreads = max(2, ProcessInfo.processInfo.activeProcessorCount - 2)
-        var error: NSError?
-        let b = LlamaBridge(modelPath: modelURL.path,
-                            contextSize: 2048,
-                            nThreads: nThreads,
-                            useMetal: true,
-                            error: &error)
-        guard let b else {
-            throw error ?? NSError(domain: "TranslatorService", code: 1)
-        }
+        // ObjC `error:(NSError**)` initializer bridges to Swift `throws`.
+        let b = try LlamaBridge(modelPath: modelURL.path,
+                                contextSize: 2048,
+                                nThreads: nThreads,
+                                useMetal: true)
         self.bridge = b
         self.loadedModelURL = modelURL
     }
@@ -53,14 +49,15 @@ actor TranslatorService {
                     return
                 }
 
-                var error: NSError?
-                _ = bridge.generate(withPrompt: prompt, params: params, onToken: { token in
-                    continuation.yield(token)
-                    return true
-                }, error: &error)
-
-                if let error { continuation.finish(throwing: error) }
-                else         { continuation.finish() }
+                do {
+                    _ = try bridge.generate(withPrompt: prompt, params: params, onToken: { token in
+                        continuation.yield(token)
+                        return true
+                    })
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
             }
         }
     }
